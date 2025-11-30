@@ -58,31 +58,26 @@ void spi_wr(spi_t *dev, const uint8_t *w_buf, uint8_t *r_buf, int len)
 
 void spi_wr_it(spi_t *dev, const uint8_t *w_buf, uint8_t *r_buf, int len)
 {
-    // DMA_Channel_TypeDef *dma_r = dev->dma_ch_rx;
-    // DMA_Channel_TypeDef *dma_t = dev->dma_ch_tx;
+    dev->dma_ch_rx->CCR &= ~DMA_CCR_EN;
+    dev->dma_ch_rx->CNDTR = len;
+    dev->dma_ch_rx->CMAR = (uint32_t)r_buf;
+    dev->dma_ch_rx->CCR |= DMA_CCR_TCIE | DMA_CCR_EN;
 
-    // dma_r->CCR &= ~DMA_CCR_EN;
-    // dma_r->CCR &= ~DMA_CCR_MINC;
-    // dma_r->CNDTR = len;
-    // dma_r->CMAR = (uint32_t)(r_buf ? r_buf : &dev->dummy_rx);
-    // dma_r->CCR |= r_buf ? (DMA_CCR_EN | DMA_CCR_MINC | DMA_CCR_TCIE) : (DMA_CCR_EN | DMA_CCR_TCIE);
-
-    // dma_t->CCR &= ~DMA_CCR_EN;
-    // dma_t->CCR &= ~DMA_CCR_MINC;
-    // dma_t->CNDTR = len;
-    // dma_t->CMAR = (uint32_t)(w_buf ? w_buf : &dev->dummy_tx);
-    // dma_t->CCR |= w_buf ? (DMA_CCR_EN | DMA_CCR_MINC) : DMA_CCR_EN;
+    dev->dma_ch_tx->CCR &= ~DMA_CCR_EN;
+    dev->dma_ch_tx->CNDTR = len;
+    dev->dma_ch_tx->CMAR = (uint32_t)w_buf;
+    dev->dma_ch_tx->CCR |= DMA_CCR_EN;
 }
 
 
 /* isr template:
 void spi_wr_isr(void)
 {
-    uint32_t flag_it = spi_dev.dma_rx->ISR;
-    if (flag_it & spi_dev.dma_mask) {
-        spi_dev.dma_rx->IFCR = spi_dev.dma_mask;
-        user_callback();
-    }
+    //uint32_t flag_it = CD_DMA->ISR;
+    //if (flag_it & CD_DMA_MASK) {
+        CD_DMA->IFCR = CD_DMA_MASK;
+        cdctl_spi_isr();
+    //}
 }
 */
 

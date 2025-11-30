@@ -214,7 +214,7 @@ static inline int i2c_mem_read(i2c_t *i2c, uint8_t mem_addr, uint8_t *buf, int l
 #endif
 
 
-#ifdef CD_ARCH_CRC_HW
+#ifdef ARCH_CRC_HW
 uint16_t crc16_hw_sub(const uint8_t *data, uint32_t length, uint16_t crc_val);
 
 static inline uint16_t crc16_hw(const uint8_t *data, uint32_t length)
