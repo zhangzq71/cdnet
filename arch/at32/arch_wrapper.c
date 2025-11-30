@@ -10,48 +10,68 @@
 #include "cd_utils.h"
 #include "arch_wrapper.h"
 
+#define BITS_SET(val, set)          ((val) |= (set))
+#define BITS_CLR(val, clr)          ((val) &= ~(clr))
+#define BITS_SET_CLR(val, set, clr) ((val) = ((val) | (set)) & ~(clr))
+
+#define CCR             ctrl
+#define CNDTR           dtcnt
+#define CMAR            maddr
+#define CPAR            paddr
+#define ISR             sts
+#define IFCR            clr
+#define DMA_CCR_EN      (1 << 0)
+#define DMA_CCR_TCIE    (1 << 1)
+
+#define SR              sts
+#define DR              dt
+#define CR1             ctrl1
+#define CR2             ctrl2
+#define SPI_FLAG_BSY    (1 << 7)
+#define SPI_CR1_SPE     (1 << 6)
+#define SPI_CR2_RXDMAEN (1 << 0)
+#define SPI_CR2_TXDMAEN (1 << 1)
+
+#define CD_DMA_MASK     (2 << 0) // DMA_ISR.TCIF1
+#define CD_SS_HIGH()    {CD_SS_GPIO_PORT->scr = CD_SS_PIN;}
+#define CD_SS_LOW()     {CD_SS_GPIO_PORT->clr = CD_SS_PIN;}
+#define CD_INT_RD()     (CD_INT_GPIO_PORT->idt & CD_INT_PIN)
+#define CD_IRQ          EXINT9_5_IRQn
 
 #ifdef CD_ARCH_SPI_DMA
 
 void spi_wr(spi_t *dev, const uint8_t *w_buf, uint8_t *r_buf, int len)
 {
-    DMA_TypeDef *dma = dev->dma_rx;
-    DMA_Channel_TypeDef *dma_r = dev->dma_ch_rx;
-    DMA_Channel_TypeDef *dma_t = dev->dma_ch_tx;
-    uint32_t mask = dev->dma_mask;
+    dev->dma_ch_rx->CCR &= ~(DMA_CCR_EN | DMA_CCR_TCIE);
+    dev->dma_ch_rx->CNDTR = len;
+    dev->dma_ch_rx->CMAR = (uint32_t)r_buf;
+    dev->dma_ch_rx->CCR |= DMA_CCR_EN;
 
-    dma_r->CCR &= ~DMA_CCR_EN;
-    dma_r->CCR &= ~(DMA_CCR_MINC | DMA_CCR_TCIE);
-    dma_r->CNDTR = len;
-    dma_r->CMAR = (uint32_t)(r_buf ? r_buf : &dev->dummy_rx);
-    dma_r->CCR |= r_buf ? (DMA_CCR_EN | DMA_CCR_MINC) : DMA_CCR_EN;
+    dev->dma_ch_tx->CCR &= ~DMA_CCR_EN;
+    dev->dma_ch_tx->CNDTR = len;
+    dev->dma_ch_tx->CMAR = (uint32_t)w_buf;
+    dev->dma_ch_tx->CCR |= DMA_CCR_EN;
 
-    dma_t->CCR &= ~DMA_CCR_EN;
-    dma_t->CCR &= ~DMA_CCR_MINC;
-    dma_t->CNDTR = len;
-    dma_t->CMAR = (uint32_t)(w_buf ? w_buf : &dev->dummy_tx);
-    dma_t->CCR |= w_buf ? (DMA_CCR_EN | DMA_CCR_MINC) : DMA_CCR_EN;
-
-    while (!(dma->ISR & mask));
-    dma->IFCR = mask;
+    while (!(dev->dma_rx->ISR & CD_DMA_MASK));
+    dev->dma_rx->IFCR = CD_DMA_MASK;
 }
 
 void spi_wr_it(spi_t *dev, const uint8_t *w_buf, uint8_t *r_buf, int len)
 {
-    DMA_Channel_TypeDef *dma_r = dev->dma_ch_rx;
-    DMA_Channel_TypeDef *dma_t = dev->dma_ch_tx;
+    // DMA_Channel_TypeDef *dma_r = dev->dma_ch_rx;
+    // DMA_Channel_TypeDef *dma_t = dev->dma_ch_tx;
 
-    dma_r->CCR &= ~DMA_CCR_EN;
-    dma_r->CCR &= ~DMA_CCR_MINC;
-    dma_r->CNDTR = len;
-    dma_r->CMAR = (uint32_t)(r_buf ? r_buf : &dev->dummy_rx);
-    dma_r->CCR |= r_buf ? (DMA_CCR_EN | DMA_CCR_MINC | DMA_CCR_TCIE) : (DMA_CCR_EN | DMA_CCR_TCIE);
+    // dma_r->CCR &= ~DMA_CCR_EN;
+    // dma_r->CCR &= ~DMA_CCR_MINC;
+    // dma_r->CNDTR = len;
+    // dma_r->CMAR = (uint32_t)(r_buf ? r_buf : &dev->dummy_rx);
+    // dma_r->CCR |= r_buf ? (DMA_CCR_EN | DMA_CCR_MINC | DMA_CCR_TCIE) : (DMA_CCR_EN | DMA_CCR_TCIE);
 
-    dma_t->CCR &= ~DMA_CCR_EN;
-    dma_t->CCR &= ~DMA_CCR_MINC;
-    dma_t->CNDTR = len;
-    dma_t->CMAR = (uint32_t)(w_buf ? w_buf : &dev->dummy_tx);
-    dma_t->CCR |= w_buf ? (DMA_CCR_EN | DMA_CCR_MINC) : DMA_CCR_EN;
+    // dma_t->CCR &= ~DMA_CCR_EN;
+    // dma_t->CCR &= ~DMA_CCR_MINC;
+    // dma_t->CNDTR = len;
+    // dma_t->CMAR = (uint32_t)(w_buf ? w_buf : &dev->dummy_tx);
+    // dma_t->CCR |= w_buf ? (DMA_CCR_EN | DMA_CCR_MINC) : DMA_CCR_EN;
 }
 
 
@@ -68,13 +88,13 @@ void spi_wr_isr(void)
 
 void spi_wr_init(spi_t *dev)
 {
-    SET_BIT(dev->spi->CR1, SPI_CR1_SPE); // enable spi
-    SET_BIT(dev->spi->CR2, SPI_CR2_RXDMAEN);
-    SET_BIT(dev->spi->CR2, SPI_CR2_TXDMAEN);
+    BITS_SET(dev->spi->CR1, SPI_CR1_SPE); // enable spi
+    BITS_SET(dev->spi->CR2, SPI_CR2_RXDMAEN);
+    BITS_SET(dev->spi->CR2, SPI_CR2_TXDMAEN);
     dev->dma_ch_rx->CCR &= ~DMA_CCR_EN;
     dev->dma_ch_tx->CCR &= ~DMA_CCR_EN;
-    dev->dma_ch_rx->CPAR = (uint32_t)&dev->spi->DR;
     dev->dma_ch_tx->CPAR = (uint32_t)&dev->spi->DR;
+    dev->dma_ch_rx->CPAR = (uint32_t)&dev->spi->DR;
 }
 
 #endif

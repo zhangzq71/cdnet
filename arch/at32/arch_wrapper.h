@@ -158,12 +158,12 @@ static inline int spi_mem_read(spi_t *spi, uint8_t mem_addr, uint8_t *buf, int l
 // spi wrapper
 
 typedef struct {
-    spi_type         *spi;
+    spi_type            *spi;
     gpio_t              *ns_pin;
 
-    DMA_TypeDef         *dma_rx;
-    DMA_Channel_TypeDef *dma_ch_rx;
-    DMA_Channel_TypeDef *dma_ch_tx;
+    dma_type            *dma_rx;
+    dma_channel_type    *dma_ch_rx;
+    dma_channel_type    *dma_ch_tx;
     uint32_t            dma_mask; // DMA_ISR.TCIFx
     uint8_t             dummy_tx;
     uint8_t             dummy_rx;
@@ -228,14 +228,17 @@ static inline uint16_t crc16_hw(const uint8_t *data, uint32_t length)
 #define CD_SYSTICK_US_DIV   1000
 #endif
 
+extern volatile uint32_t timebase_ticks;
+
 static inline uint32_t get_systick(void)
 {
-    return HAL_GetTick();
+    return timebase_ticks;
 }
 
 static inline void delay_systick(uint32_t val)
 {
-    HAL_Delay(val);
+    uint32_t start = get_systick();
+    while (get_systick() - start < val);
 }
 
 void delay_us(uint32_t us);
